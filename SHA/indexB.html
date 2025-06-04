@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web B - Receive File</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        h1 { color: #333; }
+        #status { margin-top: 15px; padding: 10px; border: 1px solid #ccc; background-color: #f9f9f9; }
+        #receivedFiles { margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px; }
+        .file-item { margin-bottom: 10px; padding: 10px; border: 1px solid #ddd; background-color: #fff; }
+        .file-item p { margin: 5px 0; }
+        .file-item a { color: #007bff; text-decoration: none; }
+        .file-item a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <h1>Web B - Receive Files from Server</h1>
+    <div id="status"></div>
+    <div id="receivedFiles">
+        <h2>Received Files:</h2>
+        <p id="noFilesMessage">No files received yet.</p>
+    </div>
+
+    <script>
+        const websocket = new WebSocket("ws://localhost:8080");
+        const statusDiv = document.getElementById("status");
+        const receivedFilesDiv = document.getElementById("receivedFiles");
+        const noFilesMessage = document.getElementById("noFilesMessage");
+
+        websocket.onopen = function(event) {
+            statusDiv.textContent = "Connected to WebSocket server.";
+        };
+
+        websocket.onmessage = async function(event) {
+            const data = JSON.parse(event.data);
+            if (data.status === "file_from_A") {
+                noFilesMessage.style.display = "none";
+                statusDiv.textContent = `Receiving file: ${data.filename}...`;
+
+                const filename = data.filename;
+                const fileData = data.fileData; // This is base64 encoded
+                const sentFileHash = data.fileHash;
+
+                // Create a Blob from the base64 data
+                const byteCharacters = atob(fileData);
+                const byteNumbers = new Array(byteCharacters.length);
+                for (let i = 0; i < byteCharacters.length; i++) {
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                const blob = new Blob([byteArray], { type: 'application/octet-stream' });
+
+                // Calculate hash of the received file
+                const receivedFileHash = await calculateSHA256(blob);
+
+                const fileItem = document.createElement("div");
+                fileItem.classList.add("file-item");
+                fileItem.innerHTML = `
+                    <p><strong>Filename:</strong> ${filename}</p>
+                    <p><strong>Sent Hash (SHA-256):</strong> ${sentFileHash}</p>
+                    <p><strong>Received Hash (SHA-256):</strong> ${receivedFileHash}</p>
+                    <p><strong>Hash Match:</strong> <span style="color: ${sentFileHash === receivedFileHash ? 'green' : 'red'}">${sentFileHash === receivedFileHash ? 'YES' : 'NO'}</span></p>
+                    <p><a href="${URL.createObjectURL(blob)}" download="${filename}">Download File</a></p>
+                `;
+                receivedFilesDiv.appendChild(fileItem);
+                statusDiv.textContent = `File "${filename}" received and ready for download. Hash check: ${sentFileHash === receivedFileHash ? 'MATCH' : 'MISMATCH'}`;
+
+            } else if (data.status === "error") {
+                statusDiv.textContent = `Error: ${data.message}`;
+            }
+        };
+
+        websocket.onclose = function(event) {
+            statusDiv.textContent = "Disconnected from WebSocket server.";
+        };
+
+        websocket.onerror = function(event) {
+            statusDiv.textContent = "WebSocket error occurred.";
+            console.error("WebSocket error:", event);
+        };
+
+        async function calculateSHA256(blob) {
+            const buffer = await blob.arrayBuffer();
+            const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+            const hashArray = Array.from(new Uint8Nopay(hashBuffer));
+            const hexHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+            return hexHash;
+        }
+    </script>
+</body>
+</html>

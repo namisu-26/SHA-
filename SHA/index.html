@@ -1,245 +1,94 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
-<meta charset="UTF-8" />
-<title>Ứng dụng truyền file qua WebSocket có kiểm tra SHA-256</title>
-<style>
-  body {
-    font-family: Arial, sans-serif;
-    background: #f0f2f5;
-    margin: 0; padding: 20px;
-    display: flex; flex-direction: column; align-items: center;
-  }
-  h1 { color: #333; }
-  #roleSelect {
-    margin-bottom: 20px;
-  }
-  #container {
-    background: white;
-    padding: 20px;
-    border-radius: 12px;
-    box-shadow: 0 0 15px rgba(0,0,0,0.1);
-    width: 400px;
-    text-align: center;
-  }
-  input[type="file"] {
-    margin-top: 10px;
-  }
-  button {
-    margin-top: 15px;
-    padding: 10px 20px;
-    font-size: 1rem;
-    cursor: pointer;
-    border: none;
-    background-color: #2980b9;
-    color: white;
-    border-radius: 6px;
-    transition: background-color 0.3s ease;
-  }
-  button:hover {
-    background-color: #3498db;
-  }
-  #status, #statusB {
-    margin-top: 15px;
-    font-weight: bold;
-    min-height: 24px;
-  }
-  #fileHash, #fileHashB, #checkResult {
-    margin-top: 15px;
-    font-family: monospace;
-    word-break: break-word;
-  }
-  #downloadLink {
-    margin-top: 15px;
-    display: none;
-    text-decoration: none;
-    color: #fff;
-    background: #27ae60;
-    padding: 10px 15px;
-    border-radius: 8px;
-  }
-  #downloadLink:hover {
-    background: #2ecc71;
-  }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web A - Send File</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        h1 { color: #333; }
+        #status { margin-top: 15px; padding: 10px; border: 1px solid #ccc; background-color: #f9f9f9; }
+        input[type="file"] { margin-bottom: 10px; }
+        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+    </style>
 </head>
 <body>
-
-<h1>Truyền file qua WebSocket - Kiểm tra SHA-256</h1>
-
-<label for="roleSelect">Chọn vai trò:</label>
-<select id="roleSelect">
-  <option value="A">Web A (Gửi file)</option>
-  <option value="B">Web B (Nhận file)</option>
-</select>
-
-<div id="container">
-  <!-- Phần Web A -->
-  <div id="sender" style="display: none;">
-    <input type="file" id="fileInput" />
-    <br/>
-    <button id="sendBtn">Gửi file</button>
+    <h1>Web A - Send File to Server</h1>
+    <input type="file" id="fileInput">
+    <button onclick="sendFile()">Send File</button>
     <div id="status"></div>
-    <div id="fileHash"></div>
-  </div>
 
-  <!-- Phần Web B -->
-  <div id="receiver" style="display: none;">
-    <div id="statusB">Chưa nhận file</div>
-    <div id="fileHashB"></div>
-    <div id="checkResult"></div>
-    <a id="downloadLink" href="#" download>⬇️ Tải file</a>
-  </div>
-</div>
+    <script>
+        const websocket = new WebSocket("ws://localhost:8080");
+        const statusDiv = document.getElementById("status");
 
-<!-- CryptoJS thư viện để tính SHA-256 -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
-<script>
-  const roleSelect = document.getElementById('roleSelect');
-  const senderDiv = document.getElementById('sender');
-  const receiverDiv = document.getElementById('receiver');
+        websocket.onopen = function(event) {
+            statusDiv.textContent = "Connected to WebSocket server.";
+        };
 
-  const fileInput = document.getElementById('fileInput');
-  const sendBtn = document.getElementById('sendBtn');
-  const status = document.getElementById('status');
-  const fileHashDiv = document.getElementById('fileHash');
+        websocket.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            if (data.status === "file_received_A") {
+                statusDiv.textContent = "File successfully sent to server!";
+            } else if (data.status === "error") {
+                statusDiv.textContent = `Error: ${data.message}`;
+            }
+        };
 
-  const statusB = document.getElementById('statusB');
-  const fileHashB = document.getElementById('fileHashB');
-  const checkResult = document.getElementById('checkResult');
-  const downloadLink = document.getElementById('downloadLink');
+        websocket.onclose = function(event) {
+            statusDiv.textContent = "Disconnected from WebSocket server.";
+        };
 
-  let ws;
+        websocket.onerror = function(event) {
+            statusDiv.textContent = "WebSocket error occurred.";
+            console.error("WebSocket error:", event);
+        };
 
-  function updateStatus(msg) {
-    if (roleSelect.value === 'A') {
-      status.textContent = msg;
-    } else {
-      statusB.textContent = msg;
-    }
-  }
-
-  function setupWebSocket() {
-    if (ws) {
-      ws.close();
-    }
-
-    ws = new WebSocket("ws://localhost:8080");
-
-    ws.onopen = () => {
-      updateStatus("✅ Đã kết nối WebSocket.");
-    };
-    ws.onerror = () => {
-      updateStatus("❌ Lỗi kết nối WebSocket.");
-    };
-    ws.onclose = () => {
-      updateStatus("⚠️ Kết nối WebSocket đã đóng.");
-    };
-
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-
-      if (roleSelect.value === 'A') {
-        if (data.status === "file_received_A") {
-          updateStatus("✅ Server đã nhận file.");
+        async function calculateSHA256(file) {
+            const buffer = await file.arrayBuffer();
+            const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            const hexHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+            return hexHash;
         }
-      } else if (roleSelect.value === 'B') {
-        if (data.status === "file_from_A") {
-          const { filename, fileData, fileHash } = data;
 
-          updateStatus(`📥 Đã nhận file: ${filename}`);
+        async function sendFile() {
+            const fileInput = document.getElementById("fileInput");
+            const file = fileInput.files[0];
 
-          fileHashB.textContent = "SHA-256 gửi từ Web A: " + fileHash;
+            if (!file) {
+                statusDiv.textContent = "Please select a file first.";
+                return;
+            }
 
-          // Giải mã base64 về bytes
-          const binaryStr = atob(fileData);
-          const len = binaryStr.length;
-          const bytes = new Uint8Array(len);
-          for (let i = 0; i < len; i++) {
-            bytes[i] = binaryStr.charCodeAt(i);
-          }
+            statusDiv.textContent = `Sending file: ${file.name}...`;
 
-          // Tính lại hash
-          const wordArray = CryptoJS.lib.WordArray.create(bytes);
-          const newHash = CryptoJS.SHA256(wordArray).toString();
+            try {
+                const fileData = await readFileAsBase64(file);
+                const fileHash = await calculateSHA256(file);
 
-          checkResult.textContent = "SHA-256 tính lại: " + newHash;
-
-          if (newHash === fileHash) {
-            checkResult.style.color = "green";
-            checkResult.textContent += " ✔️ Tính toàn vẹn dữ liệu đúng!";
-          } else {
-            checkResult.style.color = "red";
-            checkResult.textContent += " ❌ Dữ liệu bị thay đổi!";
-          }
-
-          // Tạo link tải file
-          const blob = new Blob([bytes]);
-          const url = URL.createObjectURL(blob);
-          downloadLink.href = url;
-          downloadLink.download = filename;
-          downloadLink.style.display = "inline-block";
-          downloadLink.textContent = `⬇️ Tải file ${filename}`;
+                const message = {
+                    action: "send_file_A",
+                    filename: file.name,
+                    fileData: fileData,
+                    fileHash: fileHash
+                };
+                websocket.send(JSON.stringify(message));
+            } catch (error) {
+                statusDiv.textContent = `Error preparing file: ${error.message}`;
+                console.error("Error preparing file:", error);
+            }
         }
-      }
-    };
-  }
 
-  roleSelect.addEventListener('change', () => {
-    if (ws) ws.close();
-
-    if (roleSelect.value === 'A') {
-      senderDiv.style.display = 'block';
-      receiverDiv.style.display = 'none';
-    } else {
-      senderDiv.style.display = 'none';
-      receiverDiv.style.display = 'block';
-      // Reset receiver UI
-      statusB.textContent = "Chưa nhận file";
-      fileHashB.textContent = "";
-      checkResult.textContent = "";
-      downloadLink.style.display = "none";
-    }
-    setupWebSocket();
-  });
-
-  // Khởi tạo với vai trò mặc định là Web A
-  roleSelect.value = 'A';
-  roleSelect.dispatchEvent(new Event('change'));
-
-  sendBtn.onclick = () => {
-    const file = fileInput.files[0];
-    if (!file) {
-      alert("Vui lòng chọn file trước.");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const bytes = new Uint8Array(e.target.result);
-      const wordArray = CryptoJS.lib.WordArray.create(bytes);
-      const hash = CryptoJS.SHA256(wordArray).toString();
-
-      fileHashDiv.textContent = "SHA-256 của file: " + hash;
-
-      // Mã hóa file base64
-      let binary = '';
-      for (let b of bytes) binary += String.fromCharCode(b);
-      const base64Data = btoa(binary);
-
-      // Gửi file qua websocket
-      ws.send(JSON.stringify({
-        action: "send_file_A",
-        filename: file.name,
-        fileData: base64Data,
-        fileHash: hash
-      }));
-
-      updateStatus("📤 Đang gửi file...");
-    };
-    reader.readAsArrayBuffer(file);
-  };
-</script>
-
+        function readFileAsBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result.split(',')[1]); // Get base64 string after "base64,"
+                reader.onerror = error => reject(error);
+                reader.readAsDataURL(file);
+            });
+        }
+    </script>
 </body>
 </html>
